@@ -1,4 +1,4 @@
-package plato
+package pluto
 
 import (
 	"crypto/md5"
@@ -109,7 +109,7 @@ func Begin(w []*Worker) (io.ReadCloser, error) {
 				if err != nil {
 					fmt.Printf("error in writing a part at %d: %v\n", v.begin, err)
 				}
-
+				defer clean([]string{n})
 				wg.Done()
 				break
 			}
@@ -182,4 +182,11 @@ func (w *Worker) download() (string, error) {
 		return "", err
 	}
 	return downloadFile.Name(), nil
+}
+
+func clean(a []string) {
+	// Not handling errors here, Because I used tempfiles everywhere which'll be automatically cleaned anyway
+	for _, v := range a {
+		os.Remove(v)
+	}
 }
