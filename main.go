@@ -181,40 +181,5 @@ func (w *Worker) download() (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return downloadFile, nil
-}
-
-func append(w []*Worker) (io.ReadCloser, error) {
-	completeDownloadFile, err := ioutil.TempFile(os.TempDir(), "plato_download")
-	if err != nil {
-		return nil, fmt.Errorf("error in creating temporary file: %v", err)
-	}
-
-	for i := 0; i < len(w); i++ {
-		v := w[i]
-		f, err := os.Open(v.tmpAbsFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("error in reading %d part: %v", i, err)
-		}
-
-		buf, err := ioutil.ReadAll(f)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(buf) == 0 {
-			continue
-		}
-		_, err = completeDownloadFile.Write(buf)
-		if err != nil {
-			return nil, fmt.Errorf("error in copying %d part: %v", i, err)
-		}
-
-	}
-
-	buf1, _ := ioutil.ReadAll(completeDownloadFile)
-
-	fmt.Println(string(buf1))
-	return completeDownloadFile, nil
 }
