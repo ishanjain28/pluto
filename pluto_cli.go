@@ -25,10 +25,10 @@ func main() {
 	a := time.Now()
 	f, err := pluto.Download(*u, *parts)
 	if err != nil {
-		log.Fatalln(err.Error())
+		log.Fatalln(err)
 	}
-	fmt.Printf("File Downloaded in %s", time.Since(a))
-	file, err := os.Create("test")
+
+	file, err := os.Create("downloaded_file")
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
-
+	fmt.Printf("File Downloaded in %s", time.Since(a))
 	defer file.Close()
 	defer f.Close()
 
