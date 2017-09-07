@@ -15,10 +15,9 @@ import (
 )
 
 type Worker struct {
-	begin          int64
-	end            int64
-	tmpAbsFilePath string
-	url            *url.URL
+	begin int64
+	end   int64
+	url   *url.URL
 }
 
 type FileMeta struct {
@@ -61,21 +60,18 @@ func Download(link string, parts int) (io.ReadCloser, error) {
 			downloadUpto += difference
 		}
 
-		partAbsFilePath := filepath.Join(saveDir, fmt.Sprintf(".%d.%s", i, fmeta.FileName))
-
-		workers[i] = NewWorker(startFrom, downloadUpto, partAbsFilePath, linkp)
+		workers[i] = NewWorker(startFrom, downloadUpto, linkp)
 	}
 
 	return Begin(workers)
 }
 
 // NewWorker creates a New Worker which is then processed in the Begin Function
-func NewWorker(begin, end int64, absFilePath string, u *url.URL) *Worker {
+func NewWorker(begin, end int64, u *url.URL) *Worker {
 	return &Worker{
-		begin:          begin,
-		end:            end,
-		url:            u,
-		tmpAbsFilePath: absFilePath,
+		begin: begin,
+		end:   end,
+		url:   u,
 	}
 }
 
@@ -89,27 +85,29 @@ func Begin(w []*Worker) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("error in creating temporary file: %v", err)
 	}
 
+	// TODO: Write a cleanup function that erases all remaining parts
+
 	for i, worker := range w {
 		go func(c int, v *Worker, g *sync.WaitGroup) {
 			for {
-				downloadFile, err := v.download()
+				n, err := v.download()
 				if err != nil {
 					fmt.Printf("an error occurred in downloading part #%d: %v\n", c, err)
 					fmt.Println("Retrying...")
 					time.Sleep(2 * time.Second)
 					continue
 				}
-				defer downloadFile.Close()
-				buf, err := ioutil.ReadAll(downloadFile)
+
+				downloadFile, err := ioutil.ReadFile(n)
 				if err != nil {
-					fmt.Printf("failed in reading a part file: %v", err)
+					fmt.Printf("failed in reading a part file: %v\n", err)
 					time.Sleep(2 * time.Second)
 					continue
 				}
 
-				_, err = completeDownloadFile.WriteAt(buf, v.begin)
+				_, err = completeDownloadFile.WriteAt(downloadFile, v.begin)
 				if err != nil {
-					fmt.Printf("error in writing a part at %d: %v", v.begin, err)
+					fmt.Printf("error in writing a part at %d: %v\n", v.begin, err)
 				}
 
 				wg.Done()
@@ -118,6 +116,7 @@ func Begin(w []*Worker) (io.ReadCloser, error) {
 		}(i, worker, &wg)
 	}
 	wg.Wait()
+
 	return completeDownloadFile, nil
 }
 
@@ -153,33 +152,34 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 	return &FileMeta{Size: size, MultipartSupported: m, FileName: fname}, nil
 }
 
-func (w *Worker) download() (io.ReadCloser, error) {
+func (w *Worker) download() (string, error) {
 	downloadFile, err := ioutil.TempFile(os.TempDir(), "plato_download_part")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
+	defer downloadFile.Close()
 
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", w.url.String(), nil)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", w.begin, w.end))
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 && resp.StatusCode != 206 {
-		return nil, fmt.Errorf("status code is %d", resp.StatusCode)
+		return "", fmt.Errorf("status code is %d", resp.StatusCode)
 	}
 
 	_, err = io.Copy(downloadFile, resp.Body)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return downloadFile, nil
+	return downloadFile.Name(), nil
 }

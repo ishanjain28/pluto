@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 
@@ -18,10 +17,10 @@ func main() {
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
-
-	b, _ := ioutil.ReadAll(f)
-
-	fmt.Println(b)
+	_, err = io.Copy(file, f)
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
 	defer file.Close()
 	defer f.Close()
 
