@@ -76,7 +76,6 @@ There are a lot of tool similar and better than Pluto but most of them have an u
 
 ## Motivation
 
-
 Almost all Download Managers have an upper limit on number of parts. This is usually done to for the following reasons:
 
 1. Prevent DDoS detection systems on servers from falsely marking the client's IP address as a hostile machine.
@@ -84,6 +83,9 @@ Almost all Download Managers have an upper limit on number of parts. This is usu
 3. This is just a guess, But maybe People saw that after a certain limit increasing number of parts doesn't really increase anymore speed which is true but the 16/32 part limit is very low and much better speed can be achieved by increasing part limit upto 100 on a 50Mbit Connection.
 
 But when I am downloading a file from my private servers I need the absolute maximum speed and I could not find a good tool for it. So, I built one myself. A benchmark b/w Pluto, axel and aria2c will be added shortly. 
+
+
+##### Please use this package responsibly because it can cause all the bad things mentioned above
 
 # License 
 
