@@ -16,6 +16,18 @@ There are a lot of tool similar and better than Pluto but most of them have an u
 
 2. See the [Releases](https://github.com/ishanjain28/pluto/releases) section for Precompiled Binaries
 
+### CLI Example
+
+	pluto --help 
+	Usage of pluto:
+		-part int
+        		Number of Download parts (default 16)
+
+
+
+	pluto --part=10 [urls ...]
+
+
 ### Package Example:
 
     package main
