@@ -39,6 +39,10 @@ func Download(linkp *url.URL, parts int) (*os.File, error) {
 		return nil, fmt.Errorf("error in fetching metadata: %v", err)
 	}
 
+	if !fmeta.MultipartSupported {
+		parts = 1
+	}
+
 	partLimit := fmeta.Size / int64(parts)
 	difference := fmeta.Size % int64(parts)
 

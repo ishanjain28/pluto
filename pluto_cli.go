@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,12 +43,19 @@ func main() {
 		download(u, *parts)
 	} else {
 
-		if *parts == 0 {
-			urls = os.Args[1:]
-		} else {
+		if strings.Contains(os.Args[1], "--part") {
 			urls = os.Args[2:]
+		} else {
+			urls = os.Args[1:]
 		}
 
+		if len(urls) == 0 {
+			fmt.Printf("URL: ")
+			fmt.Scanf("%s\n", &u)
+			if u == "" {
+				log.Fatalln("No URL Provided")
+			}
+		}
 		for _, v := range urls {
 			download(v, *parts)
 		}
