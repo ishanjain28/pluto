@@ -25,10 +25,10 @@ type FileMeta struct {
 }
 
 // Download takes a link and the number of parts that you want to use,
-// then downloads the file by dividing and downloading it into given number of parts concurrently.
+// then downloads the file by dividing it into given number of parts and downloading all parts concurrently.
 // If any error occurs in the downloading stage of any part, It'll wait for 2 seconds, Discard the existing part and restart it.
 // Discarding whatever bytes were downloaded isn't exactly a smart, So, I'll also be implementing a feature where it can skip over what is already downloaded.
-func Download(link string, parts int) (io.ReadCloser, error) {
+func Download(link string, parts int) (*os.File, error) {
 
 	if link == "" {
 		return nil, fmt.Errorf("No URL Provided")
@@ -67,7 +67,7 @@ func Download(link string, parts int) (io.ReadCloser, error) {
 	return startDownload(workers)
 }
 
-func startDownload(w []*worker) (io.ReadCloser, error) {
+func startDownload(w []*worker) (*os.File, error) {
 
 	var wg sync.WaitGroup
 	wg.Add(len(w))
@@ -83,11 +83,7 @@ func startDownload(w []*worker) (io.ReadCloser, error) {
 	for _, q := range w {
 		// This loop keeps trying to download a file if an error occurs
 		go func(v *worker, cerr chan error, dlerr chan error) {
-			defer func() {
-				errcopy <- nil
-				dlerr <- nil
-				wg.Done()
-			}()
+
 			dlPartAbsPath := ""
 			for {
 				dlPartAbsPath, err = v.download()
@@ -101,6 +97,13 @@ func startDownload(w []*worker) (io.ReadCloser, error) {
 
 				break
 			}
+
+			defer func(p string, w *sync.WaitGroup) {
+				errcopy <- nil
+				dlerr <- nil
+				clean([]string{p})
+				w.Done()
+			}(dlPartAbsPath, &wg)
 
 			downloadFile, err := ioutil.ReadFile(dlPartAbsPath)
 			if err != nil {
@@ -192,7 +195,7 @@ func (w *worker) download() (string, error) {
 
 	_, err = io.Copy(downloadFile, resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("error in copying bytes from http reponse: %v", err)
+		return "", fmt.Errorf("error in copying bytes from http response: %v", err)
 	}
 	return downloadFile.Name(), nil
 }
