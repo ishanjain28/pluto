@@ -28,15 +28,10 @@ type FileMeta struct {
 // then downloads the file by dividing it into given number of parts and downloading all parts concurrently.
 // If any error occurs in the downloading stage of any part, It'll wait for 2 seconds, Discard the existing part and restart it.
 // Discarding whatever bytes were downloaded isn't exactly a smart, So, I'll also be implementing a feature where it can skip over what is already downloaded.
-func Download(link string, parts int) (*os.File, error) {
+func Download(linkp *url.URL, parts int) (*os.File, error) {
 
-	if link == "" {
+	if linkp == nil {
 		return nil, fmt.Errorf("No URL Provided")
-	}
-
-	linkp, err := url.Parse(link)
-	if err != nil {
-		return nil, fmt.Errorf("error in parsing url: %v", err)
 	}
 
 	fmeta, err := FetchMeta(linkp)

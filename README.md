@@ -14,7 +14,7 @@ There are a lot of tool similar and better than Pluto but most of them have an u
 
     go get github.com/ishanjain28/pluto
 
-2. See the [Releases](https://github.com/ishanjain28/pluto/releases) for Precompiled Binaries
+2. See the [Releases](https://github.com/ishanjain28/pluto/releases) section for Precompiled Binaries
 
 ### Package Example:
 
