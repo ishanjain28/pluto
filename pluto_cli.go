@@ -30,37 +30,29 @@ func main() {
 	parts := flag.Int("part", 32, "Number of Download parts")
 	verbose := flag.Bool("verbose", false, "Enable Verbose Mode")
 	flag.Parse()
-	urls := []string{}
-	u := ""
 
-	if len(os.Args) <= 1 {
+	urls := []string{}
+
+	for i, v := range os.Args {
+		if i == 0 || strings.Contains(v, "-part=") || strings.Contains(v, "-verbose") {
+			continue
+		}
+
+		urls = append(urls, v)
+	}
+
+	if len(urls) == 0 {
+		u := ""
 		fmt.Printf("URL: ")
 		fmt.Scanf("%s\n", &u)
 		if u == "" {
 			log.Fatalln("No URL Provided")
 		}
-
-		download(u, *parts, *verbose)
-	} else {
-
-		if strings.Contains(os.Args[1], "--part") {
-			urls = os.Args[2:]
-		} else {
-			urls = os.Args[1:]
-		}
-
-		if len(urls) == 0 {
-			fmt.Printf("URL: ")
-			fmt.Scanf("%s\n", &u)
-			if u == "" {
-				log.Fatalln("No URL Provided")
-			}
-		}
-		for _, v := range urls {
-			download(v, *parts, *verbose)
-		}
+		urls = append(urls, u)
 	}
-
+	for _, v := range urls {
+		download(v, *parts, *verbose)
+	}
 }
 
 func download(u string, parts int, verbose bool) {
