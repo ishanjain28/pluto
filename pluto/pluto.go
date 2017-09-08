@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -28,7 +29,7 @@ type FileMeta struct {
 // then downloads the file by dividing it into given number of parts and downloading all parts concurrently.
 // If any error occurs in the downloading stage of any part, It'll wait for 2 seconds, Discard the existing part and restart it.
 // Discarding whatever bytes were downloaded isn't exactly a smart, So, I'll also be implementing a feature where it can skip over what is already downloaded.
-func Download(linkp *url.URL, parts int) (*os.File, error) {
+func Download(linkp *url.URL, parts int, verbose bool) (*os.File, error) {
 
 	if linkp == nil {
 		return nil, fmt.Errorf("No URL Provided")
@@ -63,10 +64,10 @@ func Download(linkp *url.URL, parts int) (*os.File, error) {
 		}
 	}
 
-	return startDownload(workers)
+	return startDownload(workers, verbose)
 }
 
-func startDownload(w []*worker) (*os.File, error) {
+func startDownload(w []*worker, verbose bool) (*os.File, error) {
 
 	var wg sync.WaitGroup
 	wg.Add(len(w))
@@ -90,6 +91,10 @@ func startDownload(w []*worker) (*os.File, error) {
 					if err.Error() == "status code: 400" || err.Error() == "status code: 500" {
 						cerr <- err
 						return
+					}
+
+					if verbose {
+						log.Printf("error in downloading a part: %v", err)
 					}
 					continue
 				}

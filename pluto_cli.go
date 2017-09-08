@@ -27,8 +27,8 @@ func main() {
 		os.Exit(0)
 	}()
 
-	parts := flag.Int("part", 16, "Number of Download parts")
-
+	parts := flag.Int("part", 32, "Number of Download parts")
+	verbose := flag.Bool("verbose", false, "Enable Verbose Mode")
 	flag.Parse()
 	urls := []string{}
 	u := ""
@@ -40,7 +40,7 @@ func main() {
 			log.Fatalln("No URL Provided")
 		}
 
-		download(u, *parts)
+		download(u, *parts, *verbose)
 	} else {
 
 		if strings.Contains(os.Args[1], "--part") {
@@ -57,33 +57,39 @@ func main() {
 			}
 		}
 		for _, v := range urls {
-			download(v, *parts)
+			download(v, *parts, *verbose)
 		}
 	}
 
 }
 
-func download(u string, parts int) {
+func download(u string, parts int, verbose bool) {
 	a := time.Now()
+
+	defer func() { select {} }()
 
 	up, err := url.Parse(u)
 	if err != nil {
-		log.Fatalln("Invalid URL")
+		log.Println("Invalid URL")
+		return
 	}
 
-	fname := filepath.Base(up.String())
+	fname := strings.Split(filepath.Base(up.String()), "?")[0]
+	fmt.Printf("Starting Download with %d parts\n", parts)
 
 	fmt.Printf("Downloading %s\n", up.String())
 
-	f, err := pluto.Download(up, parts)
+	f, err := pluto.Download(up, parts, verbose)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
 	defer f.Close()
 
 	file, err := os.Create(fname)
 	if err != nil {
-		log.Fatalln(err.Error())
+		log.Println(err.Error())
+		return
 	}
 
 	defer file.Close()
@@ -92,6 +98,6 @@ func download(u string, parts int) {
 	fmt.Printf("Downloaded %s in %s\n", up.String(), time.Since(a))
 	_, err = io.Copy(file, f)
 	if err != nil {
-		log.Fatalln(err.Error())
+		log.Println(err.Error())
 	}
 }
