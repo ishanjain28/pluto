@@ -38,10 +38,6 @@ type Config struct {
 	RetryCount int
 }
 
-var (
-	ErrPartDl = "part download"
-)
-
 // Download takes Config struct
 // then downloads the file by dividing it into given number of parts and downloading all parts concurrently.
 // If any error occurs in the downloading stage of any part, It'll check if the the program can recover from error by retrying download
@@ -49,8 +45,7 @@ var (
 func Download(c *Config) error {
 
 	// Limit number of CPUs it can use
-	runtime.GOMAXPROCS(2)
-
+	runtime.GOMAXPROCS(runtime.NumCPU() / 2)
 	// If server does not supports, Set parts to 1
 	if !c.Meta.MultipartSupported {
 		c.Parts = 1
