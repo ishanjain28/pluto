@@ -29,12 +29,14 @@ func main() {
 
 	parts := flag.Int("part", 32, "Number of Download parts")
 	verbose := flag.Bool("verbose", false, "Enable Verbose Mode")
+	name := flag.String("name", "pluto_download", "Path or Name of save File")
+
 	flag.Parse()
 
 	urls := []string{}
 
 	for i, v := range os.Args {
-		if i == 0 || strings.Contains(v, "-part=") || strings.Contains(v, "-verbose") {
+		if i == 0 || strings.Contains(v, "-name=") || strings.Contains(v, "-part=") || strings.Contains(v, "-verbose") {
 			continue
 		}
 
@@ -51,14 +53,14 @@ func main() {
 		urls = append(urls, u)
 	}
 	for _, v := range urls {
-		download(v, *parts, *verbose)
+		download(v, *name, *parts, *verbose)
 	}
 }
 
-func download(u string, parts int, verbose bool) {
+func download(u, filename string, parts int, verbose bool) {
 	a := time.Now()
 
-	defer func() { select {} }()
+	// defer func() { select {} }()
 
 	up, err := url.Parse(u)
 	if err != nil {
@@ -71,25 +73,42 @@ func download(u string, parts int, verbose bool) {
 
 	fmt.Printf("Downloading %s\n", up.String())
 
-	f, err := pluto.Download(up, parts, verbose)
+	saveFile, err := os.Create(filename)
+	if err != nil {
+		log.Fatalln("error in creating save file: %v", err)
+	}
+
+	meta, err := pluto.FetchMeta(up)
+	if err != nil {
+		log.Fatalln("error in fetching information about url: %v", err)
+	}
+
+	config := &pluto.Config{
+		Meta:       meta,
+		Parts:      parts,
+		RetryCount: 10,
+		Verbose:    verbose,
+		Writer:     saveFile,
+	}
+
+	err = pluto.Download(config)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	defer f.Close()
 
 	file, err := os.Create(fname)
 	if err != nil {
 		log.Println(err.Error())
 		return
 	}
-
 	defer file.Close()
-	defer os.Remove(f.Name())
 
 	fmt.Printf("Downloaded %s in %s\n", up.String(), time.Since(a))
-	_, err = io.Copy(file, f)
+	t, err := io.Copy(file, saveFile)
 	if err != nil {
 		log.Println(err.Error())
 	}
+
+	fmt.Println("bytes saved", t)
 }

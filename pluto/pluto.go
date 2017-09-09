@@ -3,13 +3,13 @@ package pluto
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 type worker struct {
@@ -18,124 +18,171 @@ type worker struct {
 	url   *url.URL
 }
 
-// FileMeta contains information about the file like it's Size, Name and if the server where it is hosted supports multipart downloads
+// FileMeta contains information about the file like it's Size and if the server where it is hosted supports multipart downloads
 type FileMeta struct {
+	u                  *url.URL
 	Size               int64
-	FileName           string
+	Name               string
 	MultipartSupported bool
+}
+
+type Config struct {
+	Parts      int
+	Verbose    bool
+	Writer     io.WriterAt
+	Meta       *FileMeta
+	RetryCount int
 }
 
 // Download takes a link and the number of parts that you want to use,
 // then downloads the file by dividing it into given number of parts and downloading all parts concurrently.
-// If any error occurs in the downloading stage of any part, It'll wait for 2 seconds, Discard the existing part and restart it.
-// Discarding whatever bytes were downloaded isn't exactly a smart, So, I'll also be implementing a feature where it can skip over what is already downloaded.
-func Download(linkp *url.URL, parts int, verbose bool) (*os.File, error) {
+// If any error occurs in the downloading stage of any part, It'll check value of `Config.RetryCount` and work accordingly
+func Download(c *Config) error {
 
-	if linkp == nil {
-		return nil, fmt.Errorf("No URL Provided")
+	// Limit number of CPUs it can use
+	runtime.GOMAXPROCS(2)
+
+	// If server does not supports, Set parts to 1
+	if !c.Meta.MultipartSupported {
+		c.Parts = 1
 	}
 
-	fmeta, err := FetchMeta(linkp)
-	if err != nil {
-		return nil, fmt.Errorf("error in fetching metadata: %v", err)
-	}
+	perPartLimit := c.Meta.Size / int64(c.Parts)
+	difference := c.Meta.Size % int64(c.Parts)
 
-	if !fmeta.MultipartSupported {
-		parts = 1
-	}
+	workers := make([]*worker, c.Parts)
 
-	partLimit := fmeta.Size / int64(parts)
-	difference := fmeta.Size % int64(parts)
+	for i := 0; i < c.Parts; i++ {
+		begin := perPartLimit * int64(i)
+		end := perPartLimit * (int64(i) + 1)
 
-	workers := make([]*worker, parts)
-
-	for i := 0; i < parts; i++ {
-		begin := partLimit * int64(i)
-		end := partLimit * (int64(i) + 1)
-
-		if i == parts-1 {
+		if i == c.Parts-1 {
 			end += difference
 		}
 
 		workers[i] = &worker{
 			begin: begin,
 			end:   end,
-			url:   linkp,
+			url:   c.Meta.u,
 		}
 	}
 
-	return startDownload(workers, verbose)
+	return startDownload(workers, c.Verbose, c.Writer)
 }
 
-func startDownload(w []*worker, verbose bool) (*os.File, error) {
+func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 
 	var wg sync.WaitGroup
 	wg.Add(len(w))
-
-	completeDownloadFile, err := ioutil.TempFile(os.TempDir(), "pluto_download")
-	if err != nil {
-		return nil, fmt.Errorf("error in creating temporary file: %v", err)
-	}
+	var err error
 
 	errdl := make(chan error, 1)
 	errcopy := make(chan error, 1)
 
+	count := len(w)
+
 	for _, q := range w {
 		// This loop keeps trying to download a file if an error occurs
-		go func(v *worker, cerr chan error, dlerr chan error) {
+		go func(v *worker, wgroup *sync.WaitGroup, cerr, dlerr chan error) {
+			begin := v.begin
+			end := v.end
 
-			dlPartAbsPath := ""
+			defer func() {
+				count--
+
+				wgroup.Done()
+				cerr <- nil
+				dlerr <- nil
+			}()
+
 			for {
-				dlPartAbsPath, err = v.download()
+				downloadPart, err := download(begin, end, v.url)
 				if err != nil {
 					if err.Error() == "status code: 400" || err.Error() == "status code: 500" {
 						cerr <- err
 						return
 					}
 
-					if verbose {
-						log.Printf("error in downloading a part: %v", err)
-					}
+					log.Printf("error in downloading a part: %v", err)
 					continue
 				}
 
+				d, err := copyAt(writer, downloadPart, begin)
+				if err != nil {
+
+					log.Printf("error in writing a part #%d. File is likely corrupted: %v", v.begin, err)
+
+					begin += d
+					continue
+				}
+				if verbose {
+					fmt.Printf("Copied %d bytes, part finished downloading\n", d)
+				}
+
+				downloadPart.Close()
+				begin += d
 				break
 			}
 
-			defer func(p string, w *sync.WaitGroup) {
-				errcopy <- nil
-				dlerr <- nil
-				clean([]string{p})
-				w.Done()
-			}(dlPartAbsPath, &wg)
+		}(q, &wg, errcopy, errdl)
+	}
 
-			downloadFile, err := ioutil.ReadFile(dlPartAbsPath)
-			if err != nil {
-				dlerr <- err
-				return
+	if verbose {
+		go func(w []*worker) {
+			for {
+				fmt.Println("Parts Active", count)
+				time.Sleep(5 * time.Second)
 			}
+		}(w)
+	}
 
-			_, err = completeDownloadFile.WriteAt(downloadFile, v.begin)
-			if err != nil {
-				dlerr <- fmt.Errorf("error in writing a part #%d. File is likely corrupted: %v", v.begin, err)
-				return
+	err = <-errcopy
+	if err != nil {
+		return err
+	}
+
+	err = <-errdl
+	if err != nil {
+		return err
+	}
+	wg.Wait()
+	return nil
+}
+
+func copyAt(dst io.WriterAt, src io.Reader, offset int64) (int64, error) {
+	bufBytes := make([]byte, 64*1024)
+
+	var bytesWritten int64
+	var err error
+
+	for {
+		nsr, serr := src.Read(bufBytes)
+		if nsr > 0 {
+			ndw, derr := dst.WriteAt(bufBytes[:nsr], offset)
+			if ndw > 0 {
+				offset += int64(ndw)
+				bytesWritten += int64(ndw)
 			}
-
-		}(q, errcopy, errdl)
-
-		err = <-errcopy
-		if err != nil {
-			return nil, err
+			if derr != nil {
+				err = derr
+				break
+			}
+			if nsr != ndw {
+				fmt.Printf("Short write error. Read: %d, Wrote: %d", nsr, ndw)
+				err = io.ErrShortWrite
+				break
+			}
 		}
 
-		err = <-errdl
-		if err != nil {
-			return nil, err
+		if serr != nil {
+			if serr != io.EOF {
+				err = serr
+			}
+			break
 		}
 	}
 
-	wg.Wait()
-	return completeDownloadFile, nil
+	return bytesWritten, err
 }
 
 // FetchMeta fetches information about the file like it's Size, Name and if it supports Multipart Download
@@ -156,10 +203,10 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 		return nil, fmt.Errorf("Incompatible URL, file size is 0")
 	}
 
-	m := false
+	m := true
 
-	if resp.Header.Get("Accept-Range") != "" {
-		m = true
+	if resp.Header.Get("Accept-Range") != "" && resp.Header.Get("Accept-Ranges") != "" {
+		m = false
 	}
 
 	i := strings.LastIndex(u.String(), "/")
@@ -169,45 +216,27 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 		fname = "pluto_download"
 	}
 
-	return &FileMeta{Size: size, MultipartSupported: m, FileName: fname}, nil
+	return &FileMeta{Size: size, u: u, MultipartSupported: m, Name: fname}, nil
 }
 
-func (w *worker) download() (string, error) {
-	downloadFile, err := ioutil.TempFile(os.TempDir(), "pluto_download_part")
-	if err != nil {
-		return "", err
-	}
-	defer downloadFile.Close()
+func download(begin, end int64, u *url.URL) (io.ReadCloser, error) {
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", w.url.String(), nil)
+	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
-		return "", fmt.Errorf("error in creating GET request: %v", err)
+		return nil, fmt.Errorf("error in creating GET request: %v", err)
 	}
 
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", w.begin, w.end))
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", begin, end))
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("error in sending download request: %v", err)
+		return nil, fmt.Errorf("error in sending download request: %v", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return "", fmt.Errorf("status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
 	}
 
-	_, err = io.Copy(downloadFile, resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error in copying bytes from http response: %v", err)
-	}
-	return downloadFile.Name(), nil
-}
-
-// Here, p contains the absolute paths to files that needs to be removed
-func clean(p []string) {
-	// Not handling errors here, Because I used tempfiles everywhere which'll be automatically cleaned anyway
-	for _, v := range p {
-		os.Remove(v)
-	}
+	return resp.Body, nil
 }
