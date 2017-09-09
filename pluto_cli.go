@@ -28,7 +28,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	parts := flag.Int("part", 32, "Number of Download parts")
+	parts := flag.Uint("part", 32, "Number of Download parts")
 	verbose := flag.Bool("verbose", false, "Enable Verbose Mode")
 	name := flag.String("name", "", "Path or Name of save File")
 
@@ -57,18 +57,19 @@ func main() {
 	}
 }
 
-func download(u, filename string, parts int, verbose bool) {
+func download(u, filename string, parts uint, verbose bool) {
 
 	// This variable is used to check if an error occurred anywhere in program
 	// If an error occurs, Then it'll not exit.
 	// And if no error occurs, Then it'll exit after 10 seconds
 	var errored bool
+	var dlFinished bool
 
 	defer func() {
 		if errored {
 			select {}
 		} else {
-			time.Sleep(10 * time.Second)
+			time.Sleep(5 * time.Second)
 		}
 	}()
 
@@ -112,13 +113,36 @@ func download(u, filename string, parts int, verbose bool) {
 		Writer:     saveFile,
 	}
 
-	a := time.Now()
+	startTime := time.Now()
+	go func() {
+		for {
+			time.Sleep(1 * time.Second)
+			elapsed := time.Since(startTime)
+
+			avgSpeed := meta.Size / uint64(elapsed.Seconds())
+
+			time.Sleep(100 * time.Millisecond)
+
+			if dlFinished {
+				break
+			}
+			fmt.Printf("Average Speed: %s/s, Elapsed Time: %s\r", humanize.IBytes(avgSpeed), elapsed.String())
+		}
+	}()
+
 	err = pluto.Download(config)
 	if err != nil {
 		errored = true
 		log.Printf("%v", err)
 		return
 	}
-	timeTaken := time.Since(a)
-	fmt.Printf("Downloaded complete in %s. Avg. Speed - %s/s\n", timeTaken, humanize.IBytes(uint64(meta.Size)/uint64(timeTaken.Seconds())))
+	timeTaken := time.Since(startTime)
+	dlFinished = true
+	fmt.Printf("Downloaded complete in %s. Avg. Speed - %s/s\n", timeTaken, humanize.IBytes(meta.Size/uint64(timeTaken.Seconds())))
+
+	p, err := filepath.Abs(meta.Name)
+	if err != nil {
+		fmt.Printf("File saved in %s\n", meta.Name)
+	}
+	fmt.Printf("File saved in %s\n", p)
 }

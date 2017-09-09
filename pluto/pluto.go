@@ -12,15 +12,15 @@ import (
 )
 
 type worker struct {
-	begin int64
-	end   int64
+	begin uint64
+	end   uint64
 	url   *url.URL
 }
 
 // FileMeta contains information about the file like it's Size and if the server where it is hosted supports multipart downloads
 type FileMeta struct {
 	u                  *url.URL
-	Size               int64
+	Size               uint64
 	Name               string
 	MultipartSupported bool
 }
@@ -31,7 +31,7 @@ type FileMeta struct {
 // Verbose is to enable verbose mode.
 // Writer is the place where downloaded data is written.
 type Config struct {
-	Parts      int
+	Parts      uint
 	Verbose    bool
 	Writer     io.WriterAt
 	Meta       *FileMeta
@@ -51,14 +51,15 @@ func Download(c *Config) error {
 		c.Parts = 1
 	}
 
-	perPartLimit := c.Meta.Size / int64(c.Parts)
-	difference := c.Meta.Size % int64(c.Parts)
+	perPartLimit := c.Meta.Size / uint64(c.Parts)
+	difference := c.Meta.Size % uint64(c.Parts)
 
 	workers := make([]*worker, c.Parts)
 
-	for i := 0; i < c.Parts; i++ {
-		begin := perPartLimit * int64(i)
-		end := perPartLimit * (int64(i) + 1)
+	var i uint
+	for i = 0; i < c.Parts; i++ {
+		begin := perPartLimit * uint64(i)
+		end := perPartLimit * (uint64(i) + 1)
 
 		if i == c.Parts-1 {
 			end += difference
@@ -115,7 +116,9 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 
 				d, err := copyAt(writer, downloadPart, begin)
 				if err != nil {
-					log.Printf("error in copyAt at offset %d: %v", v.begin, err)
+					if verbose {
+						log.Printf("error in copyAt at offset %d: %v", v.begin, err)
+					}
 					begin += d
 					continue
 				}
@@ -155,7 +158,7 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 }
 
 // copyAt reads 64 kilobytes from source and copies them to destination at a given offset
-func copyAt(dst io.WriterAt, src io.Reader, offset int64) (int64, error) {
+func copyAt(dst io.WriterAt, src io.Reader, offset uint64) (uint64, error) {
 	bufBytes := make([]byte, 64*1024)
 
 	var bytesWritten int64
@@ -164,9 +167,9 @@ func copyAt(dst io.WriterAt, src io.Reader, offset int64) (int64, error) {
 	for {
 		nsr, serr := src.Read(bufBytes)
 		if nsr > 0 {
-			ndw, derr := dst.WriteAt(bufBytes[:nsr], offset)
+			ndw, derr := dst.WriteAt(bufBytes[:nsr], int64(offset))
 			if ndw > 0 {
-				offset += int64(ndw)
+				offset += uint64(ndw)
 				bytesWritten += int64(ndw)
 			}
 			if derr != nil {
@@ -188,7 +191,7 @@ func copyAt(dst io.WriterAt, src io.Reader, offset int64) (int64, error) {
 		}
 	}
 
-	return bytesWritten, err
+	return uint64(bytesWritten), err
 }
 
 // FetchMeta fetches information about the file like it's Size, Name and if it supports Multipart Download
@@ -215,10 +218,10 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 		m = false
 	}
 
-	return &FileMeta{Size: size, u: u, MultipartSupported: m}, nil
+	return &FileMeta{Size: uint64(size), u: u, MultipartSupported: m}, nil
 }
 
-func download(begin, end int64, u *url.URL) (io.ReadCloser, error) {
+func download(begin, end uint64, u *url.URL) (io.ReadCloser, error) {
 
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", u.String(), nil)
