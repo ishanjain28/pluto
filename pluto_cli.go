@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/url"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/dustin/go-humanize"
 
 	"github.com/ishanjain28/pluto/pluto"
 )
@@ -29,10 +30,9 @@ func main() {
 
 	parts := flag.Int("part", 32, "Number of Download parts")
 	verbose := flag.Bool("verbose", false, "Enable Verbose Mode")
-	name := flag.String("name", "pluto_download", "Path or Name of save File")
+	name := flag.String("name", "", "Path or Name of save File")
 
 	flag.Parse()
-
 	urls := []string{}
 
 	for i, v := range os.Args {
@@ -58,29 +58,50 @@ func main() {
 }
 
 func download(u, filename string, parts int, verbose bool) {
-	a := time.Now()
 
-	// defer func() { select {} }()
+	// This variable is used to check if an error occurred anywhere in program
+	// If an error occurs, Then it'll not exit.
+	// And if no error occurs, Then it'll exit after 10 seconds
+	var errored bool
+
+	defer func() {
+		if errored {
+			select {}
+		} else {
+			time.Sleep(10 * time.Second)
+		}
+	}()
 
 	up, err := url.Parse(u)
 	if err != nil {
+		errored = true
 		log.Println("Invalid URL")
 		return
 	}
 
 	fname := strings.Split(filepath.Base(up.String()), "?")[0]
-	fmt.Printf("Starting Download with %d parts\n", parts)
+	fmt.Printf("Starting Download with %d connections\n", parts)
 
-	fmt.Printf("Downloading %s\n", up.String())
-
-	saveFile, err := os.Create(filename)
-	if err != nil {
-		log.Fatalln("error in creating save file: %v", err)
-	}
+	fmt.Printf("\nDownloading %s\n", up.String())
 
 	meta, err := pluto.FetchMeta(up)
 	if err != nil {
-		log.Fatalln("error in fetching information about url: %v", err)
+		errored = true
+		log.Printf("error in fetching information about url: %v", err)
+		return
+	}
+
+	meta.Name = filename
+
+	if meta.Name == "" {
+		meta.Name = fname
+	}
+
+	saveFile, err := os.Create(meta.Name)
+	if err != nil {
+		errored = true
+		log.Printf("error in creating save file: %v", err)
+		return
 	}
 
 	config := &pluto.Config{
@@ -91,24 +112,13 @@ func download(u, filename string, parts int, verbose bool) {
 		Writer:     saveFile,
 	}
 
+	a := time.Now()
 	err = pluto.Download(config)
 	if err != nil {
-		log.Println(err)
+		errored = true
+		log.Printf("%v", err)
 		return
 	}
-
-	file, err := os.Create(fname)
-	if err != nil {
-		log.Println(err.Error())
-		return
-	}
-	defer file.Close()
-
-	fmt.Printf("Downloaded %s in %s\n", up.String(), time.Since(a))
-	t, err := io.Copy(file, saveFile)
-	if err != nil {
-		log.Println(err.Error())
-	}
-
-	fmt.Println("bytes saved", t)
+	timeTaken := time.Since(a)
+	fmt.Printf("Downloaded complete in %s. Avg. Speed - %s/s\n", timeTaken, humanize.IBytes(uint64(meta.Size)/uint64(timeTaken.Seconds())))
 }

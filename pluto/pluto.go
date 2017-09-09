@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 )
@@ -130,8 +129,8 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 	if verbose {
 		go func(w []*worker) {
 			for {
-				fmt.Println("Parts Active", count)
-				time.Sleep(5 * time.Second)
+				fmt.Println("Connections Active", count)
+				time.Sleep(3 * time.Second)
 			}
 		}(w)
 	}
@@ -209,14 +208,7 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 		m = false
 	}
 
-	i := strings.LastIndex(u.String(), "/")
-	fname := u.String()[i+1:]
-
-	if fname == "" {
-		fname = "pluto_download"
-	}
-
-	return &FileMeta{Size: size, u: u, MultipartSupported: m, Name: fname}, nil
+	return &FileMeta{Size: size, u: u, MultipartSupported: m}, nil
 }
 
 func download(begin, end int64, u *url.URL) (io.ReadCloser, error) {
