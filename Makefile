@@ -41,12 +41,12 @@ $(PACKAGE)-$(VERSION)-linux-386:
 $(PACKAGE)-$(VERSION)-windows-amd64.exe:
 	GOOS=windows \
 	GOARCH=amd64 \
-	go build -o=$@.exe
+	go build -o=$@
 
 $(PACKAGE)-$(VERSION)-windows-386.exe:
 	GOOS=windows \
 	GOARCH=386 \
-	go build -o=$@.exe
+	go build -o=$@
 
 dist-clean:
 	rm -f $(ARCH_WIN) $(ARCH_LINUX)
