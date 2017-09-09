@@ -25,6 +25,11 @@ type FileMeta struct {
 	MultipartSupported bool
 }
 
+// Config contains all the details that Download needs.
+// RetryCount is not used at this point.
+// Parts is the number of connections to use to download a file
+// Verbose is to enable verbose mode.
+// Writer is the place where downloaded data is written.
 type Config struct {
 	Parts      int
 	Verbose    bool
@@ -33,9 +38,14 @@ type Config struct {
 	RetryCount int
 }
 
-// Download takes a link and the number of parts that you want to use,
+var (
+	ErrPartDl = "part download"
+)
+
+// Download takes Config struct
 // then downloads the file by dividing it into given number of parts and downloading all parts concurrently.
-// If any error occurs in the downloading stage of any part, It'll check value of `Config.RetryCount` and work accordingly
+// If any error occurs in the downloading stage of any part, It'll check if the the program can recover from error by retrying download
+// And if an error occurs which the program can not recover from, it'll return that error
 func Download(c *Config) error {
 
 	// Limit number of CPUs it can use
@@ -81,7 +91,7 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 	count := len(w)
 
 	for _, q := range w {
-		// This loop keeps trying to download a file if an error occurs
+		// This loop keeps trying to download a file if a recoverable error occurs
 		go func(v *worker, wgroup *sync.WaitGroup, cerr, dlerr chan error) {
 			begin := v.begin
 			end := v.end
@@ -102,20 +112,21 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 						return
 					}
 
-					log.Printf("error in downloading a part: %v", err)
+					if verbose {
+						log.Println(err)
+					}
 					continue
 				}
 
 				d, err := copyAt(writer, downloadPart, begin)
 				if err != nil {
-
-					log.Printf("error in writing a part #%d. File is likely corrupted: %v", v.begin, err)
-
+					log.Printf("error in copyAt at offset %d: %v", v.begin, err)
 					begin += d
 					continue
 				}
+
 				if verbose {
-					fmt.Printf("Copied %d bytes, part finished downloading\n", d)
+					fmt.Printf("Copied %d bytes\n", d)
 				}
 
 				downloadPart.Close()
@@ -148,6 +159,7 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 	return nil
 }
 
+// copyAt reads 64 kilobytes from source and copies them to destination at a given offset
 func copyAt(dst io.WriterAt, src io.Reader, offset int64) (int64, error) {
 	bufBytes := make([]byte, 64*1024)
 
