@@ -7,6 +7,7 @@ There are a lot of tool similar and better than Pluto but most of them have an u
 
 [![GoDoc](https://godoc.org/github.com/ishanjain28/pluto/pluto?status.svg)](https://godoc.org/github.com/ishanjain28/pluto/pluto) 
 [![Go Report Card](https://goreportcard.com/badge/github.com/ishanjain28/pluto)](https://goreportcard.com/report/github.com/ishanjain28/pluto)
+[![Build Status](https://travis-ci.org/ishanjain28/pluto.svg?branch=master)](https://travis-ci.org/ishanjain28/pluto)
 
 ## Installation
 
@@ -101,4 +102,4 @@ But when I am downloading a file from my private servers I need the absolute max
 
 # License 
 
-MIT
+GPLv2
