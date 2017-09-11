@@ -92,12 +92,15 @@ func download(u, filename string, parts uint, verbose bool) {
 		return
 	}
 
-	meta.Name = filename
+	if filename != "" {
+		meta.Name = filename
+	}
 
 	if meta.Name == "" {
 		meta.Name = fname
 	}
 
+	fmt.Println(meta.Name)
 	saveFile, err := os.Create(meta.Name)
 	if err != nil {
 		errored = true

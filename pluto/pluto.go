@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -203,7 +204,7 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 && resp.StatusCode != 206 {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		return nil, fmt.Errorf("status code is %d", resp.StatusCode)
 	}
 
@@ -218,7 +219,25 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 		m = false
 	}
 
-	return &FileMeta{Size: uint64(size), u: u, MultipartSupported: m}, nil
+	resp, err = http.Get(u.String())
+	if err != nil {
+		return nil, fmt.Errorf("error in sending GET request: %v", err)
+	}
+
+	cDispose := strings.Split(resp.Header.Get("Content-Disposition"), "filename=")
+
+	name := ""
+
+	if len(cDispose) > 0 {
+		cdfilename := cDispose[1]
+		cdfilename = cdfilename[1:]
+		cdfilename = cdfilename[:len(cdfilename)-1]
+		name = cdfilename
+	}
+
+	resp.Body.Close()
+
+	return &FileMeta{Size: uint64(size), Name: name, u: u, MultipartSupported: m}, nil
 }
 
 func download(begin, end uint64, u *url.URL) (io.ReadCloser, error) {
