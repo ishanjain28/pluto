@@ -17,6 +17,9 @@ import (
 	"github.com/ishanjain28/pluto/pluto"
 )
 
+var Version string
+var Build string
+
 func main() {
 
 	sig := make(chan os.Signal, 1)
@@ -31,8 +34,17 @@ func main() {
 	parts := flag.Uint("part", 32, "Number of Download parts")
 	verbose := flag.Bool("verbose", false, "Enable Verbose Mode")
 	name := flag.String("name", "", "Path or Name of save File")
+	version := flag.Bool("version", false, "Pluto Version")
 
 	flag.Parse()
+
+	if *version {
+		fmt.Println("Pluto - A Fast Multipart File Downloader")
+		fmt.Printf("Version: %s\n", Version)
+		fmt.Printf("Build: %s\n", Build)
+		return
+	}
+
 	urls := []string{}
 
 	for i, v := range os.Args {
