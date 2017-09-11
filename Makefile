@@ -1,5 +1,5 @@
 PACKAGE=pluto
-VERSION=1.4
+VERSION=1.4.1
 
 ARCH_LINUX = $(PACKAGE)-$(VERSION)-linux-amd64 \
 						 $(PACKAGE)-$(VERSION)-linux-arm64 \

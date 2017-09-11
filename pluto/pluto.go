@@ -1,3 +1,4 @@
+// Package pluto provides a way to download files at high speeds by using http ranged requests.
 package pluto
 
 import (
@@ -224,15 +225,19 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 		return nil, fmt.Errorf("error in sending GET request: %v", err)
 	}
 
-	cDispose := strings.Split(resp.Header.Get("Content-Disposition"), "filename=")
-
 	name := ""
 
-	if len(cDispose) > 0 {
-		cdfilename := cDispose[1]
-		cdfilename = cdfilename[1:]
-		cdfilename = cdfilename[:len(cdfilename)-1]
-		name = cdfilename
+	dispositionHeader := resp.Header.Get("Content-Disposition")
+
+	if dispositionHeader != "" {
+		cDispose := strings.Split(dispositionHeader, "filename=")
+
+		if len(cDispose) > 0 {
+			cdfilename := cDispose[1]
+			cdfilename = cdfilename[1:]
+			cdfilename = cdfilename[:len(cdfilename)-1]
+			name = cdfilename
+		}
 	}
 
 	resp.Body.Close()
