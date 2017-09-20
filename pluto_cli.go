@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"os"
@@ -34,8 +36,8 @@ func main() {
 	parts := flag.Uint("part", 32, "Number of Download parts")
 	verbose := flag.Bool("verbose", false, "Enable Verbose Mode")
 	name := flag.String("name", "", "Path or Name of save File")
+	loadFromFile := flag.String("load-from-file", "", "Load URLs from a file")
 	version := flag.Bool("version", false, "Pluto Version")
-
 	flag.Parse()
 
 	if *version {
@@ -47,12 +49,33 @@ func main() {
 
 	urls := []string{}
 
-	for i, v := range os.Args {
-		if i == 0 || strings.Contains(v, "-name=") || strings.Contains(v, "-part=") || strings.Contains(v, "-verbose") {
-			continue
-		}
+	if *loadFromFile == "" {
+		for i, v := range os.Args {
+			if i == 0 || strings.Contains(v, "-load-from-file") || strings.Contains(v, "-name=") || strings.Contains(v, "-part=") || strings.Contains(v, "-verbose") {
+				continue
+			}
 
-		urls = append(urls, v)
+			urls = append(urls, v)
+		}
+	} else {
+		f, err := os.OpenFile(*loadFromFile, os.O_RDONLY, 0x444)
+		if err != nil {
+			log.Fatalf("error in opening file %s: %v\n", *loadFromFile, err)
+		}
+		defer f.Close()
+		reader := bufio.NewReader(f)
+
+		for {
+			str, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Fatalf("error in reading file: %v", err)
+			}
+
+			urls = append(urls, str[:len(str)-1])
+		}
 	}
 
 	if len(urls) == 0 {

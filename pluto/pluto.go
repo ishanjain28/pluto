@@ -161,7 +161,7 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 
 // copyAt reads 64 kilobytes from source and copies them to destination at a given offset
 func copyAt(dst io.WriterAt, src io.Reader, offset uint64) (uint64, error) {
-	bufBytes := make([]byte, 64*1024)
+	bufBytes := make([]byte, 128*1024)
 
 	var bytesWritten int64
 	var err error
