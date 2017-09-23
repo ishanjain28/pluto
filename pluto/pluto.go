@@ -27,6 +27,13 @@ type FileMeta struct {
 	MultipartSupported bool
 }
 
+// Stats is returned in a channel by Download function every 200ms and contains details like Current download speed in bytes/sec, Downloaded and Total Number of bytes
+type Stats struct {
+	Downloaded int64
+	Total      int64
+	Speed      int64
+}
+
 // Config contains all the details that Download needs.
 // RetryCount is not used at this point.
 // Parts is the number of connections to use to download a file

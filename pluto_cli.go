@@ -136,7 +136,7 @@ func download(u, filename string, parts uint, verbose bool) {
 	}
 
 	fmt.Println(meta.Name)
-	saveFile, err := os.Create(meta.Name)
+	saveFile, err := os.Create(strings.Replace(meta.Name, "/", " ", -1))
 	if err != nil {
 		errored = true
 		log.Printf("error in creating save file: %v", err)
