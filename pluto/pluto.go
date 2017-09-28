@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,7 +18,6 @@ type worker struct {
 	begin uint64
 	end   uint64
 	url   *url.URL
-	mu    *sync.Mutex
 }
 
 // FileMeta contains information about the file like it's Size, Name and if the server supports multipart downloads
@@ -81,7 +81,6 @@ func Download(c *Config) error {
 			begin: begin,
 			end:   end,
 			url:   c.Meta.u,
-			mu:    &sync.Mutex{},
 		}
 	}
 
@@ -105,14 +104,16 @@ func startDownload(w []*worker, c Config) error {
 	go func(c *Config) {
 
 		for {
-			speed := downloaded - c.downloaded
+
+			dled := atomic.LoadUint64(&downloaded)
+			speed := dled - c.downloaded
 
 			c.StatsChan <- &Stats{
 				Downloaded: c.downloaded,
 				Speed:      speed * 4,
 			}
 
-			c.downloaded = downloaded
+			c.downloaded = dled
 
 			time.Sleep(250 * time.Millisecond)
 		}
@@ -203,7 +204,7 @@ func copyAt(dst io.WriterAt, src io.Reader, offset uint64, dlcounter *uint64) (u
 				u64ndw := uint64(ndw)
 				offset += u64ndw
 				bytesWritten += u64ndw
-				*dlcounter += u64ndw
+				atomic.AddUint64(dlcounter, u64ndw)
 			}
 			if derr != nil {
 				err = derr
