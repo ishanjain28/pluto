@@ -72,6 +72,11 @@ Almost all Download Managers have an upper limit on number of parts. This is usu
 
 But when I am downloading a file from my private servers I need the absolute maximum speed and I could not find a good tool for it. So, I built one myself. A benchmark b/w Pluto, axel and aria2c will be added shortly. 
 
+## Future Plans
+
+1. Pause and resume support.
+2. Intelligent redistribution of remaining bytes when one of the connections finishes downloading data assigned to it. This would result in much better speed utilisation as it approaches the end of download.
+
 
 ##### Please use this package responsibly because it can cause all the bad things mentioned above and if you encounter any problems, Feel free to create an issue.
 
