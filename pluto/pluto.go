@@ -17,6 +17,7 @@ type worker struct {
 	begin uint64
 	end   uint64
 	url   *url.URL
+	mu    *sync.Mutex
 }
 
 // FileMeta contains information about the file like it's Size and if the server where it is hosted supports multipart downloads
@@ -29,9 +30,8 @@ type FileMeta struct {
 
 // Stats is returned in a channel by Download function every 200ms and contains details like Current download speed in bytes/sec, Downloaded and Total Number of bytes
 type Stats struct {
-	Downloaded int64
-	Total      int64
-	Speed      int64
+	Downloaded uint64
+	Speed      uint64
 }
 
 // Config contains all the details that Download needs.
@@ -40,11 +40,13 @@ type Stats struct {
 // Verbose is to enable verbose mode.
 // Writer is the place where downloaded data is written.
 type Config struct {
-	Parts      uint
-	Verbose    bool
-	Writer     io.WriterAt
-	Meta       *FileMeta
-	RetryCount int
+	Connections uint
+	Verbose     bool
+	Writer      io.WriterAt
+	Meta        *FileMeta
+	RetryCount  uint
+	StatsChan   chan *Stats
+	downloaded  uint64
 }
 
 // Download takes Config struct
@@ -57,20 +59,20 @@ func Download(c *Config) error {
 	runtime.GOMAXPROCS(runtime.NumCPU() / 2)
 	// If server does not supports, Set parts to 1
 	if !c.Meta.MultipartSupported {
-		c.Parts = 1
+		c.Connections = 1
 	}
 
-	perPartLimit := c.Meta.Size / uint64(c.Parts)
-	difference := c.Meta.Size % uint64(c.Parts)
+	perPartLimit := c.Meta.Size / uint64(c.Connections)
+	difference := c.Meta.Size % uint64(c.Connections)
 
-	workers := make([]*worker, c.Parts)
+	workers := make([]*worker, c.Connections)
 
 	var i uint
-	for i = 0; i < c.Parts; i++ {
+	for i = 0; i < c.Connections; i++ {
 		begin := perPartLimit * uint64(i)
 		end := perPartLimit * (uint64(i) + 1)
 
-		if i == c.Parts-1 {
+		if i == c.Connections-1 {
 			end += difference
 		}
 
@@ -78,13 +80,14 @@ func Download(c *Config) error {
 			begin: begin,
 			end:   end,
 			url:   c.Meta.u,
+			mu:    &sync.Mutex{},
 		}
 	}
 
-	return startDownload(workers, c.Verbose, c.Writer)
+	return startDownload(workers, *c)
 }
 
-func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
+func startDownload(w []*worker, c Config) error {
 
 	var wg sync.WaitGroup
 	wg.Add(len(w))
@@ -95,6 +98,40 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 
 	count := len(w)
 
+	var downloaded uint64
+
+	// Stats system, It writes stats to the stats channel
+	go func(c *Config) {
+
+		// var oldSpeed uint64
+		for {
+
+			// I am writing stats every 400ms, And it is possible that it may not have downloaded in past 200ms
+			// or some worker might be waiting for the mutex lock
+			// So, Speed becomes 0 which is not quite right.
+			speed := downloaded - c.downloaded
+
+			// counter := 0
+			// if speed == 0 && counter < 10 {
+			// 	// speed = oldSpeed
+
+			// 	counter++
+			// } else if speed == 0 {
+			// 	counter = 0
+			// }
+
+			c.StatsChan <- &Stats{
+				Downloaded: c.downloaded,
+				Speed:      speed,
+			}
+
+			c.downloaded = downloaded
+			// oldSpeed = speed
+
+			time.Sleep(800 * time.Millisecond)
+		}
+	}(&c)
+
 	for _, q := range w {
 		// This loop keeps trying to download a file if a recoverable error occurs
 		go func(v *worker, wgroup *sync.WaitGroup, cerr, dlerr chan error) {
@@ -102,8 +139,8 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 			end := v.end
 
 			defer func() {
-				count--
 
+				count--
 				wgroup.Done()
 				cerr <- nil
 				dlerr <- nil
@@ -117,40 +154,47 @@ func startDownload(w []*worker, verbose bool, writer io.WriterAt) error {
 						return
 					}
 
-					if verbose {
+					if c.Verbose {
 						log.Println(err)
 					}
 					continue
 				}
 
-				d, err := copyAt(writer, downloadPart, begin)
+				d, err := copyAt(c.Writer, downloadPart, begin)
 				if err != nil {
-					if verbose {
-						log.Printf("error in copyAt at offset %d: %v", v.begin, err)
+					if c.Verbose {
+						log.Printf("error in copying data at offset %d: %v", v.begin, err)
 					}
 					begin += d
+
+					v.mu.Lock()
+					downloaded += d
+					v.mu.Unlock()
 					continue
 				}
 
-				if verbose {
+				if c.Verbose {
 					fmt.Printf("Copied %d bytes\n", d)
 				}
 
 				downloadPart.Close()
 				begin += d
+				v.mu.Lock()
+				downloaded += d
+				v.mu.Unlock()
 				break
 			}
 
 		}(q, &wg, errcopy, errdl)
 	}
 
-	if verbose {
-		go func(w []*worker) {
+	if c.Verbose {
+		go func() {
 			for {
 				fmt.Println("Connections Active", count)
 				time.Sleep(3 * time.Second)
 			}
-		}(w)
+		}()
 	}
 
 	err = <-errcopy
