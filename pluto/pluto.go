@@ -127,13 +127,13 @@ func startDownload(w []*worker, c Config) error {
 			c.downloaded = downloaded
 			oldSpeed = speed
 
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}(&c)
 
 	for _, q := range w {
 		// This loop keeps trying to download a file if a recoverable error occurs
-		go func(v *worker, wgroup *sync.WaitGroup, cerr, dlerr chan error) {
+		go func(v *worker, wgroup *sync.WaitGroup, dl *uint64, cerr, dlerr chan error) {
 			begin := v.begin
 			end := v.end
 
@@ -166,9 +166,9 @@ func startDownload(w []*worker, c Config) error {
 					}
 					begin += d
 
-					v.mu.Lock()
-					downloaded += d
-					v.mu.Unlock()
+					// v.mu.Lock()
+					*dl += d
+					// v.mu.Unlock()
 					continue
 				}
 
@@ -178,13 +178,13 @@ func startDownload(w []*worker, c Config) error {
 
 				downloadPart.Close()
 				begin += d
-				v.mu.Lock()
-				downloaded += d
-				v.mu.Unlock()
+				// v.mu.Lock()
+				*dl += d
+				// v.mu.Unlock()
 				break
 			}
 
-		}(q, &wg, errcopy, errdl)
+		}(q, &wg, &downloaded, errcopy, errdl)
 	}
 
 	if c.Verbose {
