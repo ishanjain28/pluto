@@ -1,5 +1,5 @@
 # pluto
-A CLI and Library for lightning fast, aggressive and reliable downloads. 
+A CLI and Library for super fast, Multi part downloads.
 
 Pluto is a Multipart File Downloader. It comes in form of a package and a CLI. It works by dividing the file into a given number of parts, Each part is given a range of bytes to download, As all the parts are downloading they are also written to the file in correct order.
 

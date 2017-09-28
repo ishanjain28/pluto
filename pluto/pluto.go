@@ -96,8 +96,6 @@ func startDownload(w []*worker, c Config) error {
 	errdl := make(chan error, 1)
 	errcopy := make(chan error, 1)
 
-	count := len(w)
-
 	var downloaded uint64
 
 	// Stats system, It writes stats to the stats channel
@@ -127,7 +125,6 @@ func startDownload(w []*worker, c Config) error {
 
 			defer func() {
 
-				count--
 				wgroup.Done()
 				cerr <- nil
 				dlerr <- nil
@@ -165,15 +162,6 @@ func startDownload(w []*worker, c Config) error {
 			}
 
 		}(q, &wg, &downloaded, errcopy, errdl)
-	}
-
-	if c.Verbose {
-		go func() {
-			for {
-				fmt.Println("Connections Active", count)
-				time.Sleep(3 * time.Second)
-			}
-		}()
 	}
 
 	err = <-errcopy

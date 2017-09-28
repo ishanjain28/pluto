@@ -155,16 +155,16 @@ func download(up *url.URL, num int) {
 
 	startTime := time.Now()
 
-	go func() {
+	go func(dled bool) {
 		if config.StatsChan == nil {
 			return
 		}
 		for v := range config.StatsChan {
-			if !dlFinished {
+			if !dled {
 				fmt.Printf("%.2f%% - %s/%s - %s/s   	      \r", float64(v.Downloaded)/float64(meta.Size)*100, humanize.IBytes(v.Downloaded), humanize.IBytes(meta.Size), humanize.IBytes(v.Speed))
 			}
 		}
-	}()
+	}(dlFinished)
 
 	err = pluto.Download(config)
 	if err != nil {
