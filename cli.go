@@ -23,7 +23,7 @@ var Version string
 var Build string
 
 var options struct {
-	Verbose bool `short:"v" long:"verbose" description:"Enable Verbose Mode"`
+	Verbose bool `long:"verbose" description:"Enable Verbose Mode"`
 
 	Connections uint `short:"n" long:"connections" description:"Number of concurrent connections"`
 
@@ -31,15 +31,15 @@ var options struct {
 
 	LoadFromFile string `short:"f" long:"load-from-file" description:"Load URLs from a file"`
 
-	RetryCount uint `long:"retry-count" description:"Number of times a download should be retried in case of an error"`
+	Headers []string `short:"H" long:"Headers" description:"Headers to send with each request. Useful if a server requires some information in headers"`
 
-	Version bool `long:"version" description:"Print Pluto Version and exit"`
+	Version bool `short:"v" long:"version" description:"Print Pluto Version and exit"`
 }
 
 func main() {
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGSTOP)
+	signal.Notify(sig, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-sig
@@ -59,6 +59,9 @@ func main() {
 		return
 	}
 
+	defer func() {
+		fmt.Scanf("\n", nil)
+	}()
 	args = args[1:]
 
 	urls := []string{}
@@ -108,9 +111,11 @@ func main() {
 
 func download(up *url.URL, num int) {
 
+	var dlFinished bool
+
 	fname := strings.Split(filepath.Base(up.String()), "?")[0]
 
-	meta, err := pluto.FetchMeta(up)
+	meta, err := pluto.FetchMeta(up, options.Headers)
 	if err != nil {
 		log.Println(err)
 		return
@@ -142,7 +147,7 @@ func download(up *url.URL, num int) {
 	config := &pluto.Config{
 		Meta:        meta,
 		Connections: options.Connections,
-		RetryCount:  options.RetryCount,
+		Headers:     options.Headers,
 		Verbose:     options.Verbose,
 		Writer:      saveFile,
 		StatsChan:   make(chan *pluto.Stats),
@@ -151,14 +156,19 @@ func download(up *url.URL, num int) {
 	startTime := time.Now()
 
 	go func() {
+		if config.StatsChan == nil {
+			return
+		}
 		for v := range config.StatsChan {
-			fmt.Printf("%s/%s - %s/s         \r", humanize.IBytes(v.Downloaded), humanize.IBytes(meta.Size), humanize.IBytes(v.Speed))
+			if !dlFinished {
+				fmt.Printf("%.2f%% - %s/%s - %s/s   	      \r", float64(v.Downloaded)/float64(meta.Size)*100, humanize.IBytes(v.Downloaded), humanize.IBytes(meta.Size), humanize.IBytes(v.Speed))
+			}
 		}
 	}()
 
 	err = pluto.Download(config)
 	if err != nil {
-		log.Printf("%v", err)
+		log.Println(err)
 		return
 	}
 
@@ -177,6 +187,8 @@ func download(up *url.URL, num int) {
 	}
 	as := humanize.IBytes(uint64(float64(meta.Size) / float64(ts)))
 
+	dlFinished = true
 	fmt.Printf("Downloaded %s in %s. Avg. Speed - %s/s\n", s, htime, as)
 	fmt.Printf("File saved in %s\n", p)
+
 }

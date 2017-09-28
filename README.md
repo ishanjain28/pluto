@@ -1,7 +1,7 @@
 # pluto
 A CLI and Library for lightning fast, aggressive and reliable downloads. 
 
-Pluto is a Multipart File Downloader. It comes in form of a package and a CLI. It works by dividing the file into a given number of parts, Each part is given a range of bytes to download, As all the parts are downloading they are also written to the saveFile in correct order.
+Pluto is a Multipart File Downloader. It comes in form of a package and a CLI. It works by dividing the file into a given number of parts, Each part is given a range of bytes to download, As all the parts are downloading they are also written to the file in correct order.
 
 There are a lot of tool similar and better than Pluto but most of them have an upper limit of 16 or 32 parts whereas Pluto has no upper limit.
 
@@ -9,39 +9,55 @@ There are a lot of tool similar and better than Pluto but most of them have an u
 [![Go Report Card](https://goreportcard.com/badge/github.com/ishanjain28/pluto)](https://goreportcard.com/report/github.com/ishanjain28/pluto)
 [![Build Status](https://travis-ci.org/ishanjain28/pluto.svg?branch=master)](https://travis-ci.org/ishanjain28/pluto)
 
+## Features
+
+1. Fast download speed.
+2. Multi Part Downloading
+3. High tolerance for low quality internet connection. 
+4. A Stats API that makes getting parameters like current download speed and number of bytes downloaded easier
+5. Guarantees reliable file downloads
+6. It can be used to download files from servers which require authorization in form of a value in Request Header.
+7. It can load URLs from a file.
+
+
 ## Installation
 
 1. You have a working Go Environment
 
-    go get github.com/ishanjain28/pluto
+	go get github.com/ishanjain28/pluto
 
-2. See the [Releases](https://github.com/ishanjain28/pluto/releases) section for Precompiled Binaries
+2. You don't have a working Go Environment 
+   1. See the [Releases](https://github.com/ishanjain28/pluto/releases) section for Precompiled Binaries
+   2. Download a binary for your platform
+   3. Put the binary in `/usr/bin` or `/usr/local/bin` on Unix like systems and add the path to binary to `PATH` variable on Windows.
+   4. Done. Now type `pluto -v` in terminal to see if it is installed correctly. :)
+
 
 ### CLI Example
+	Usage:
+		pluto [OPTIONS] [urls...]
 
-	Usage of pluto:
-  		-name string
-    		Path or Name of save File
-  		-part uint
-    	  	Number of Download parts (default 32)
-  		-verbose
-    		Enable Verbose Mode
+	Application Options:
+	      --verbose         Enable Verbose Mode
+	  -n, --connections=    Number of concurrent connections
+	      --name=           Path or Name of save file
+	  -f, --load-from-file= Load URLs from a file
+	  -H, --Headers=        Headers to send with each request. Useful if a server requires some information in headers
+	  -v, --version         Print Pluto Version and exit
 
-
-	$ pluto [OPTIONS] [URLs...]
-
+	Help Options:
+	  -h, --help            Show this help message
 
 ### Package Example:
 
-	See pluto_cli.go for an example of this package
-
+	See cli.go for an example of this package
 
 
 ## Default Behaviours
 
 1. When an error occurs in downloading stage of a part, It is automatically retried, unless there is an error that retrying won't fix. For example, If the server sends a 404, 400 or 500 HTTP response, It stop and return an error.
 
-2. To keep RAM usage to a minimum, Only 64kilobytes of data is read at a time from HTTP connection and written to file.
+2. It now uses 256kb buffers instead of a 64kb buffer to reduce CPU Usage. 
 
 3. When a part download fails for reason that is recoverable(see 1) reason, Only the bytes that have not been downloaded yet are requested from server.
 

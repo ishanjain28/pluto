@@ -20,7 +20,7 @@ type worker struct {
 	mu    *sync.Mutex
 }
 
-// FileMeta contains information about the file like it's Size and if the server where it is hosted supports multipart downloads
+// FileMeta contains information about the file like it's Size, Name and if the server supports multipart downloads
 type FileMeta struct {
 	u                  *url.URL
 	Size               uint64
@@ -28,23 +28,24 @@ type FileMeta struct {
 	MultipartSupported bool
 }
 
-// Stats is returned in a channel by Download function every 200ms and contains details like Current download speed in bytes/sec, Downloaded and Total Number of bytes
+// Stats is returned in a channel by Download function every 250ms and contains details like Current download speed in bytes/sec and amount of data Downloaded
 type Stats struct {
 	Downloaded uint64
 	Speed      uint64
 }
 
 // Config contains all the details that Download needs.
-// RetryCount is not used at this point.
-// Parts is the number of connections to use to download a file
+// Connections is the number of connections to use to download a file
 // Verbose is to enable verbose mode.
 // Writer is the place where downloaded data is written.
+// Headers is any header that you may need to send to download the file.
+// StatsChan is a channel to which Stats are sent, It can be nil or a channel that can hold data of type *()
 type Config struct {
 	Connections uint
 	Verbose     bool
+	Headers     []string
 	Writer      io.WriterAt
 	Meta        *FileMeta
-	RetryCount  uint
 	StatsChan   chan *Stats
 	downloaded  uint64
 }
@@ -57,7 +58,7 @@ func Download(c *Config) error {
 
 	// Limit number of CPUs it can use
 	runtime.GOMAXPROCS(runtime.NumCPU() / 2)
-	// If server does not supports, Set parts to 1
+	// If server does not supports multiple connections, Set it to 1
 	if !c.Meta.MultipartSupported {
 		c.Connections = 1
 	}
@@ -103,31 +104,17 @@ func startDownload(w []*worker, c Config) error {
 	// Stats system, It writes stats to the stats channel
 	go func(c *Config) {
 
-		var oldSpeed uint64
 		for {
-
-			// I am writing stats every 400ms, And it is possible that it may not have downloaded in past 200ms
-			// or some worker might be waiting for the mutex lock
-			// So, Speed becomes 0 which is not quite right.
 			speed := downloaded - c.downloaded
-
-			counter := 0
-			if speed == 0 && counter < 3 {
-				speed = oldSpeed
-				counter++
-			} else if speed == 0 {
-				counter = 0
-			}
 
 			c.StatsChan <- &Stats{
 				Downloaded: c.downloaded,
-				Speed:      speed,
+				Speed:      speed * 4,
 			}
 
 			c.downloaded = downloaded
-			oldSpeed = speed
 
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}(&c)
 
@@ -146,7 +133,7 @@ func startDownload(w []*worker, c Config) error {
 			}()
 
 			for {
-				downloadPart, err := download(begin, end, v.url)
+				downloadPart, err := download(begin, end, &c)
 				if err != nil {
 					if err.Error() == "status code: 400" || err.Error() == "status code: 500" {
 						cerr <- err
@@ -159,16 +146,12 @@ func startDownload(w []*worker, c Config) error {
 					continue
 				}
 
-				d, err := copyAt(c.Writer, downloadPart, begin)
+				d, err := copyAt(c.Writer, downloadPart, begin, &downloaded)
+				begin += d
 				if err != nil {
 					if c.Verbose {
 						log.Printf("error in copying data at offset %d: %v", v.begin, err)
 					}
-					begin += d
-
-					// v.mu.Lock()
-					*dl += d
-					// v.mu.Unlock()
 					continue
 				}
 
@@ -177,10 +160,6 @@ func startDownload(w []*worker, c Config) error {
 				}
 
 				downloadPart.Close()
-				begin += d
-				// v.mu.Lock()
-				*dl += d
-				// v.mu.Unlock()
 				break
 			}
 
@@ -210,10 +189,10 @@ func startDownload(w []*worker, c Config) error {
 }
 
 // copyAt reads 64 kilobytes from source and copies them to destination at a given offset
-func copyAt(dst io.WriterAt, src io.Reader, offset uint64) (uint64, error) {
-	bufBytes := make([]byte, 128*1024)
+func copyAt(dst io.WriterAt, src io.Reader, offset uint64, dlcounter *uint64) (uint64, error) {
+	bufBytes := make([]byte, 256*1024)
 
-	var bytesWritten int64
+	var bytesWritten uint64
 	var err error
 
 	for {
@@ -221,8 +200,10 @@ func copyAt(dst io.WriterAt, src io.Reader, offset uint64) (uint64, error) {
 		if nsr > 0 {
 			ndw, derr := dst.WriteAt(bufBytes[:nsr], int64(offset))
 			if ndw > 0 {
-				offset += uint64(ndw)
-				bytesWritten += int64(ndw)
+				u64ndw := uint64(ndw)
+				offset += u64ndw
+				bytesWritten += u64ndw
+				*dlcounter += u64ndw
 			}
 			if derr != nil {
 				err = derr
@@ -243,13 +224,33 @@ func copyAt(dst io.WriterAt, src io.Reader, offset uint64) (uint64, error) {
 		}
 	}
 
-	return uint64(bytesWritten), err
+	return bytesWritten, err
 }
 
 // FetchMeta fetches information about the file like it's Size, Name and if it supports Multipart Download
 // If a link does not supports multipart downloads, Then the provided value of part is ignored and set to 1
-func FetchMeta(u *url.URL) (*FileMeta, error) {
-	resp, err := http.Head(u.String())
+func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
+
+	req, err := http.NewRequest("HEAD", u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("error in creating HEAD request: %v", err)
+	}
+
+	for _, v := range headers {
+		vsp := strings.Split(v, ":")
+
+		if len(vsp) != 2 {
+			continue
+		}
+		key := vsp[0]
+		value := vsp[1]
+
+		req.Header.Set(key, value)
+	}
+
+	client := &http.Client{}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error in sending HEAD request: %v", err)
 	}
@@ -295,15 +296,27 @@ func FetchMeta(u *url.URL) (*FileMeta, error) {
 	return &FileMeta{Size: uint64(size), Name: name, u: u, MultipartSupported: m}, nil
 }
 
-func download(begin, end uint64, u *url.URL) (io.ReadCloser, error) {
+func download(begin, end uint64, config *Config) (io.ReadCloser, error) {
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", u.String(), nil)
+	req, err := http.NewRequest("GET", config.Meta.u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("error in creating GET request: %v", err)
 	}
 
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", begin, end))
+
+	for _, v := range config.Headers {
+		vsp := strings.Split(v, ":")
+
+		if len(vsp) != 2 {
+			continue
+		}
+		key := vsp[0]
+		value := vsp[1]
+
+		req.Header.Set(key, value)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 )
 
 func TestFetchMeta(t *testing.T) {
+	// Incomplete
 	u, _ := url.Parse("	")
 
 	resp, err := http.Head(u.String())
@@ -21,7 +22,7 @@ func TestFetchMeta(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	meta, err := pluto.FetchMeta(u)
+	meta, err := pluto.FetchMeta(u, nil)
 	if err != nil {
 		log.Println(err.Error())
 		t.Fail()
