@@ -103,7 +103,7 @@ func startDownload(w []*worker, c Config) error {
 	// Stats system, It writes stats to the stats channel
 	go func(c *Config) {
 
-		// var oldSpeed uint64
+		var oldSpeed uint64
 		for {
 
 			// I am writing stats every 400ms, And it is possible that it may not have downloaded in past 200ms
@@ -111,14 +111,13 @@ func startDownload(w []*worker, c Config) error {
 			// So, Speed becomes 0 which is not quite right.
 			speed := downloaded - c.downloaded
 
-			// counter := 0
-			// if speed == 0 && counter < 10 {
-			// 	// speed = oldSpeed
-
-			// 	counter++
-			// } else if speed == 0 {
-			// 	counter = 0
-			// }
+			counter := 0
+			if speed == 0 && counter < 3 {
+				speed = oldSpeed
+				counter++
+			} else if speed == 0 {
+				counter = 0
+			}
 
 			c.StatsChan <- &Stats{
 				Downloaded: c.downloaded,
@@ -126,9 +125,9 @@ func startDownload(w []*worker, c Config) error {
 			}
 
 			c.downloaded = downloaded
-			// oldSpeed = speed
+			oldSpeed = speed
 
-			time.Sleep(800 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 		}
 	}(&c)
 

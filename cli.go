@@ -112,7 +112,7 @@ func download(up *url.URL, num int) {
 
 	meta, err := pluto.FetchMeta(up)
 	if err != nil {
-		log.Printf("error in fetching information about url: %v", err)
+		log.Println(err)
 		return
 	}
 
