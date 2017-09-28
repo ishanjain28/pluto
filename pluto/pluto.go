@@ -226,13 +226,10 @@ func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
 	}
 
 	for _, v := range headers {
-		vsp := strings.Split(v, ":")
+		vsp := strings.Index(v, ":")
 
-		if len(vsp) != 2 {
-			continue
-		}
-		key := vsp[0]
-		value := vsp[1]
+		key := v[:vsp]
+		value := v[vsp:]
 
 		req.Header.Set(key, value)
 	}
@@ -296,13 +293,10 @@ func download(begin, end uint64, config *Config) (io.ReadCloser, error) {
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", begin, end))
 
 	for _, v := range config.Headers {
-		vsp := strings.Split(v, ":")
+		vsp := strings.Index(v, ":")
 
-		if len(vsp) != 2 {
-			continue
-		}
-		key := vsp[0]
-		value := vsp[1]
+		key := v[:vsp]
+		value := v[vsp:]
 
 		req.Header.Set(key, value)
 	}
