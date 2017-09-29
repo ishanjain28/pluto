@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+var (
+
+	// ErrOverflow is when server sends more data than what was requested
+	ErrOverflow = "error: Server sent extra bytes"
+)
+
 type worker struct {
 	begin uint64
 	end   uint64
@@ -101,19 +107,28 @@ func startDownload(w []*worker, c Config) error {
 	// Stats system, It writes stats to the stats channel
 	go func(c *Config) {
 
+		var oldSpeed uint64
+		counter := 0
 		for {
 
 			dled := atomic.LoadUint64(&downloaded)
 			speed := dled - c.downloaded
 
+			if speed == 0 && counter < 4 {
+				speed = oldSpeed
+				counter++
+			} else {
+				counter = 0
+			}
+
 			c.StatsChan <- &Stats{
 				Downloaded: c.downloaded,
-				Speed:      speed * 4,
+				Speed:      speed * 2,
 			}
 
 			c.downloaded = dled
-
-			time.Sleep(250 * time.Millisecond)
+			oldSpeed = speed
+			time.Sleep(500 * time.Millisecond)
 		}
 	}(&c)
 
@@ -133,7 +148,7 @@ func startDownload(w []*worker, c Config) error {
 			for {
 				downloadPart, err := download(begin, end, &c)
 				if err != nil {
-					if err.Error() == "status code: 400" || err.Error() == "status code: 500" {
+					if err.Error() == "status code: 400" || err.Error() == "status code: 500" || err.Error() == ErrOverflow {
 						cerr <- err
 						return
 					}
@@ -251,10 +266,10 @@ func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
 		return nil, fmt.Errorf("Incompatible URL, file size is 0")
 	}
 
-	m := true
+	msupported := false
 
 	if resp.Header.Get("Accept-Range") != "" && resp.Header.Get("Accept-Ranges") != "" {
-		m = false
+		msupported = true
 	}
 
 	resp, err = http.Get(u.String())
@@ -279,7 +294,7 @@ func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
 
 	resp.Body.Close()
 
-	return &FileMeta{Size: uint64(size), Name: name, u: u, MultipartSupported: m}, nil
+	return &FileMeta{Size: uint64(size), Name: name, u: u, MultipartSupported: msupported}, nil
 }
 
 func download(begin, end uint64, config *Config) (io.ReadCloser, error) {
@@ -310,5 +325,8 @@ func download(begin, end uint64, config *Config) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
 	}
 
+	if uint64(resp.ContentLength) != (end - begin) {
+		return nil, fmt.Errorf(ErrOverflow)
+	}
 	return resp.Body, nil
 }

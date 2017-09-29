@@ -111,7 +111,7 @@ func main() {
 
 func download(up *url.URL, num int) {
 
-	var dlFinished bool
+	dlFinished := make(chan bool, 1)
 
 	fname := strings.Split(filepath.Base(up.String()), "?")[0]
 
@@ -155,15 +155,22 @@ func download(up *url.URL, num int) {
 
 	startTime := time.Now()
 
-	go func(dled bool) {
+	go func(dled chan bool) {
 		if config.StatsChan == nil {
 			return
 		}
-		for v := range config.StatsChan {
-			if !dled {
-				fmt.Printf("%.2f%% - %s/%s - %s/s   	      \r", float64(v.Downloaded)/float64(meta.Size)*100, humanize.IBytes(v.Downloaded), humanize.IBytes(meta.Size), humanize.IBytes(v.Speed))
+
+		for {
+			select {
+			case <-dled:
+				break
+			case v := <-config.StatsChan:
+				os.Stdout.WriteString(fmt.Sprintf("%.2f%% - %s/%s - %s/s	   	      \r", float64(v.Downloaded)/float64(meta.Size)*100, humanize.IBytes(v.Downloaded), humanize.IBytes(meta.Size), humanize.IBytes(v.Speed)))
+				os.Stdout.Sync()
 			}
+
 		}
+
 	}(dlFinished)
 
 	err = pluto.Download(config)
@@ -172,11 +179,11 @@ func download(up *url.URL, num int) {
 		return
 	}
 
+	dlFinished <- true
 	timeTaken := time.Since(startTime)
-
 	p, err := filepath.Abs(meta.Name)
 	if err != nil {
-		fmt.Printf("File saved in %s\n", meta.Name)
+		fmt.Printf("\nFile saved in %s\n", meta.Name)
 	}
 
 	s := humanize.IBytes(meta.Size)
@@ -187,7 +194,6 @@ func download(up *url.URL, num int) {
 	}
 	as := humanize.IBytes(uint64(float64(meta.Size) / float64(ts)))
 
-	dlFinished = true
 	fmt.Printf("Downloaded %s in %s. Avg. Speed - %s/s\n", s, htime, as)
 	fmt.Printf("File saved in %s\n", p)
 
