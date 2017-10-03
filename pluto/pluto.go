@@ -268,7 +268,7 @@ func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
 
 	msupported := false
 
-	if resp.Header.Get("Accept-Range") != "" && resp.Header.Get("Accept-Ranges") != "" {
+	if resp.Header.Get("Accept-Range") != "" || resp.Header.Get("Accept-Ranges") != "" {
 		msupported = true
 	}
 
@@ -318,6 +318,11 @@ func download(begin, end uint64, config *Config) (io.ReadCloser, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
+
+		if config.Verbose {
+			fmt.Printf("Requested Bytes %d in range %d-%d. Got %d bytes\n", end-begin, begin, end, resp.ContentLength)
+		}
+
 		return nil, fmt.Errorf("error in sending download request: %v", err)
 	}
 

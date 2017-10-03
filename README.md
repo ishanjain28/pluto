@@ -24,7 +24,7 @@ There are a lot of tool similar and better than Pluto but most of them have an u
 
 1. You have a working Go Environment
 
-	go get github.com/ishanjain28/pluto
+    go get github.com/ishanjain28/pluto
 
 2. You don't have a working Go Environment 
    1. See the [Releases](https://github.com/ishanjain28/pluto/releases) section for Precompiled Binaries

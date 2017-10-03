@@ -174,12 +174,12 @@ func download(up *url.URL, num int) {
 	}(dlFinished)
 
 	err = pluto.Download(config)
+	dlFinished <- true
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	dlFinished <- true
 	timeTaken := time.Since(startTime)
 	p, err := filepath.Abs(meta.Name)
 	if err != nil {
