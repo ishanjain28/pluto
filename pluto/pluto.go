@@ -7,10 +7,15 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	humanize "github.com/dustin/go-humanize"
+
 	"time"
 )
 
@@ -26,74 +31,137 @@ type worker struct {
 	url   *url.URL
 }
 
-// FileMeta contains information about the file like it's Size, Name and if the server supports multipart downloads
-type FileMeta struct {
-	u                  *url.URL
+// Stats is returned in a channel by Download function every 250ms and contains details like Current download speed in bytes/sec and amount of data Downloaded
+type Stats struct {
+	Downloaded uint64
+	Speed      uint64
+	Size       uint64
+}
+
+type fileMetaData struct {
+	url                *url.URL
 	Size               uint64
 	Name               string
 	MultipartSupported bool
 }
 
-// Stats is returned in a channel by Download function every 250ms and contains details like Current download speed in bytes/sec and amount of data Downloaded
-type Stats struct {
-	Downloaded uint64
-	Speed      uint64
-}
-
-// Config contains all the details that Download needs.
+// Pluto contains all the details that Download needs.
 // Connections is the number of connections to use to download a file
 // Verbose is to enable verbose mode.
 // Writer is the place where downloaded data is written.
 // Headers is any header that you may need to send to download the file.
 // StatsChan is a channel to which Stats are sent, It can be nil or a channel that can hold data of type *()
-type Config struct {
-	Connections uint
-	Verbose     bool
-	Headers     []string
-	Writer      io.WriterAt
-	Meta        *FileMeta
+type Pluto struct {
 	StatsChan   chan *Stats
+	Finished    chan struct{}
+	connections uint
+	verbose     bool
+	headers     []string
 	downloaded  uint64
+	metaData    fileMetaData
+	startTime   time.Time
+	writer      io.WriterAt
+}
+
+//Result is the download results
+type Result struct {
+	FileName  string
+	Size      uint64
+	AvgSpeed  float64
+	TimeTaken time.Duration
+}
+
+//New returns a pluto instance
+func New(up *url.URL, headers []string, name string, connections uint, verbose bool) (*Pluto, error) {
+
+	p := &Pluto{
+		connections: connections,
+		headers:     headers,
+		verbose:     verbose,
+		StatsChan:   make(chan *Stats),
+		Finished:    make(chan struct{}),
+	}
+
+	err := p.fetchMeta(up, headers)
+	if err != nil {
+		return nil, err
+	}
+
+	if name != "" {
+		p.metaData.Name = name
+	} else if p.metaData.Name == "" {
+		p.metaData.Name = strings.Split(filepath.Base(up.String()), "?")[0]
+	}
+
+	if p.metaData.MultipartSupported {
+		fmt.Printf("Downloading %s(%s) with %d connection\n", p.metaData.Name, humanize.Bytes(p.metaData.Size), p.connections)
+	} else {
+		fmt.Printf("Downloading %s(%s) with 1 connection(Multipart downloads not supported)\n", p.metaData.Name, humanize.Bytes(p.metaData.Size))
+		p.connections = 1
+	}
+
+	p.writer, err = os.Create(strings.Replace(p.metaData.Name, "/", "\\/", -1))
+	if err != nil {
+		return nil, fmt.Errorf("error creating file %s: %v", p.metaData.Name, err)
+	}
+
+	return p, nil
+
 }
 
 // Download takes Config struct
 // then downloads the file by dividing it into given number of parts and downloading all parts concurrently.
 // If any error occurs in the downloading stage of any part, It'll check if the the program can recover from error by retrying download
 // And if an error occurs which the program can not recover from, it'll return that error
-func Download(c *Config) error {
-
+func (p *Pluto) Download() (*Result, error) {
+	p.startTime = time.Now()
 	// Limit number of CPUs it can use
 	runtime.GOMAXPROCS(runtime.NumCPU() / 2)
-	// If server does not supports multiple connections, Set it to 1
-	if !c.Meta.MultipartSupported {
-		c.Connections = 1
-	}
 
-	perPartLimit := c.Meta.Size / uint64(c.Connections)
-	difference := c.Meta.Size % uint64(c.Connections)
+	perPartLimit := p.metaData.Size / uint64(p.connections)
+	difference := p.metaData.Size % uint64(p.connections)
 
-	workers := make([]*worker, c.Connections)
+	workers := make([]*worker, p.connections)
 
-	var i uint
-	for i = 0; i < c.Connections; i++ {
+	for i := uint(0); i < p.connections; i++ {
 		begin := perPartLimit * uint64(i)
 		end := perPartLimit * (uint64(i) + 1)
 
-		if i == c.Connections-1 {
+		if i == p.connections-1 {
 			end += difference
 		}
 
 		workers[i] = &worker{
 			begin: begin,
 			end:   end,
-			url:   c.Meta.u,
+			url:   p.metaData.url,
 		}
 	}
 
-	return startDownload(workers, *c)
+	err := p.startDownload(workers)
+	if err != nil {
+		return nil, err
+	}
+
+	tt := time.Since(p.startTime)
+	filename, err := filepath.Abs(p.metaData.Name)
+	if err != nil {
+		log.Printf("unable to get absolute path for %s: %v", p.metaData.Name, err)
+		filename = p.metaData.Name
+	}
+
+	r := &Result{
+		TimeTaken: tt,
+		FileName:  filename,
+		Size:      p.metaData.Size,
+		AvgSpeed:  float64(p.metaData.Size) / float64(tt.Seconds()),
+	}
+
+	close(p.Finished)
+	return r, nil
 }
 
-func startDownload(w []*worker, c Config) error {
+func (p *Pluto) startDownload(w []*worker) error {
 
 	var wg sync.WaitGroup
 	wg.Add(len(w))
@@ -105,14 +173,14 @@ func startDownload(w []*worker, c Config) error {
 	var downloaded uint64
 
 	// Stats system, It writes stats to the stats channel
-	go func(c *Config) {
+	go func() {
 
 		var oldSpeed uint64
 		counter := 0
 		for {
 
 			dled := atomic.LoadUint64(&downloaded)
-			speed := dled - c.downloaded
+			speed := dled - p.downloaded
 
 			if speed == 0 && counter < 4 {
 				speed = oldSpeed
@@ -121,16 +189,17 @@ func startDownload(w []*worker, c Config) error {
 				counter = 0
 			}
 
-			c.StatsChan <- &Stats{
-				Downloaded: c.downloaded,
+			p.StatsChan <- &Stats{
+				Downloaded: p.downloaded,
 				Speed:      speed * 2,
+				Size:       p.metaData.Size,
 			}
 
-			c.downloaded = dled
+			p.downloaded = dled
 			oldSpeed = speed
 			time.Sleep(500 * time.Millisecond)
 		}
-	}(&c)
+	}()
 
 	for _, q := range w {
 		// This loop keeps trying to download a file if a recoverable error occurs
@@ -146,29 +215,29 @@ func startDownload(w []*worker, c Config) error {
 			}()
 
 			for {
-				downloadPart, err := download(begin, end, &c)
+				downloadPart, err := p.download(begin, end)
 				if err != nil {
 					if err.Error() == "status code: 400" || err.Error() == "status code: 500" || err.Error() == ErrOverflow {
 						cerr <- err
 						return
 					}
 
-					if c.Verbose {
+					if p.verbose {
 						log.Println(err)
 					}
 					continue
 				}
 
-				d, err := copyAt(c.Writer, downloadPart, begin, &downloaded)
+				d, err := p.copyAt(downloadPart, begin, &downloaded)
 				begin += d
 				if err != nil {
-					if c.Verbose {
+					if p.verbose {
 						log.Printf("error in copying data at offset %d: %v", v.begin, err)
 					}
 					continue
 				}
 
-				if c.Verbose {
+				if p.verbose {
 					fmt.Printf("Copied %d bytes\n", d)
 				}
 
@@ -193,7 +262,7 @@ func startDownload(w []*worker, c Config) error {
 }
 
 // copyAt reads 64 kilobytes from source and copies them to destination at a given offset
-func copyAt(dst io.WriterAt, src io.Reader, offset uint64, dlcounter *uint64) (uint64, error) {
+func (p *Pluto) copyAt(src io.Reader, offset uint64, dlcounter *uint64) (uint64, error) {
 	bufBytes := make([]byte, 256*1024)
 
 	var bytesWritten uint64
@@ -202,7 +271,7 @@ func copyAt(dst io.WriterAt, src io.Reader, offset uint64, dlcounter *uint64) (u
 	for {
 		nsr, serr := src.Read(bufBytes)
 		if nsr > 0 {
-			ndw, derr := dst.WriteAt(bufBytes[:nsr], int64(offset))
+			ndw, derr := p.writer.WriteAt(bufBytes[:nsr], int64(offset))
 			if ndw > 0 {
 				u64ndw := uint64(ndw)
 				offset += u64ndw
@@ -231,13 +300,11 @@ func copyAt(dst io.WriterAt, src io.Reader, offset uint64, dlcounter *uint64) (u
 	return bytesWritten, err
 }
 
-// FetchMeta fetches information about the file like it's Size, Name and if it supports Multipart Download
-// If a link does not supports multipart downloads, Then the provided value of part is ignored and set to 1
-func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
+func (p *Pluto) fetchMeta(u *url.URL, headers []string) error {
 
 	req, err := http.NewRequest("HEAD", u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("error in creating HEAD request: %v", err)
+		return fmt.Errorf("error in creating HEAD request: %v", err)
 	}
 
 	for _, v := range headers {
@@ -253,17 +320,17 @@ func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error in sending HEAD request: %v", err)
+		return fmt.Errorf("error in sending HEAD request: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return nil, fmt.Errorf("status code is %d", resp.StatusCode)
+		return fmt.Errorf("status code is %d", resp.StatusCode)
 	}
 
 	size := resp.ContentLength
 	if size == 0 {
-		return nil, fmt.Errorf("Incompatible URL, file size is 0")
+		return fmt.Errorf("Incompatible URL, file size is 0")
 	}
 
 	msupported := false
@@ -274,7 +341,7 @@ func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
 
 	resp, err = http.Get(u.String())
 	if err != nil {
-		return nil, fmt.Errorf("error in sending GET request: %v", err)
+		return fmt.Errorf("error in sending GET request: %v", err)
 	}
 
 	name := ""
@@ -293,21 +360,26 @@ func FetchMeta(u *url.URL, headers []string) (*FileMeta, error) {
 	}
 
 	resp.Body.Close()
-
-	return &FileMeta{Size: uint64(size), Name: name, u: u, MultipartSupported: msupported}, nil
+	p.metaData = fileMetaData{
+		Size:               uint64(size),
+		Name:               name,
+		url:                u,
+		MultipartSupported: msupported,
+	}
+	return nil
 }
 
-func download(begin, end uint64, config *Config) (io.ReadCloser, error) {
+func (p *Pluto) download(begin, end uint64) (io.ReadCloser, error) {
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", config.Meta.u.String(), nil)
+	req, err := http.NewRequest("GET", p.metaData.url.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("error in creating GET request: %v", err)
 	}
 
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", begin, end))
 
-	for _, v := range config.Headers {
+	for _, v := range p.headers {
 		vsp := strings.Index(v, ":")
 
 		key := v[:vsp]
@@ -319,7 +391,7 @@ func download(begin, end uint64, config *Config) (io.ReadCloser, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 
-		if config.Verbose {
+		if p.verbose {
 			fmt.Printf("Requested Bytes %d in range %d-%d. Got %d bytes\n", end-begin, begin, end, resp.ContentLength)
 		}
 
