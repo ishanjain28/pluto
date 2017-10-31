@@ -94,12 +94,7 @@ func main() {
 	go func() {
 		<-sig
 		fmt.Printf("Interrupt Detected, Shutting Down.")
-
-		if len(options.urls) > 0 {
-			os.Exit(1)
-		} else {
-			cancel()
-		}
+		cancel()
 	}()
 
 	err := parseArgs()
@@ -114,7 +109,13 @@ func main() {
 		return
 	}
 
+UrlLoop:
 	for _, v := range options.urls {
+		select {
+		case <-ctx.Done():
+			break UrlLoop
+		default:
+		}
 		up, err := url.Parse(v)
 		if err != nil {
 			log.Printf("Invalid URL: %v", err)
