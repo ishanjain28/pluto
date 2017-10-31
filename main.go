@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"hacktober/pluto/pluto"
 	"io"
 	"log"
 	"net/url"
@@ -13,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/ishanjain28/pluto/pluto"
 
 	humanize "github.com/dustin/go-humanize"
 	flag "github.com/jessevdk/go-flags"
