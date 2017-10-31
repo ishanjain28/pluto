@@ -27,7 +27,7 @@ var options struct {
 	Connections  uint     `short:"n" long:"connections" default:"1" description:"Number of concurrent connections"`
 	Name         string   `long:"name" description:"Path or Name of save file"`
 	LoadFromFile string   `short:"f" long:"load-from-file" description:"Load URLs from a file"`
-	Headers      []string `short:"H" long:"Headers" description:"Headers to send with each request. Useful if a server requires some information in headers"`
+	Headers      []string `short:"H" long:"headers" description:"Headers to send with each request. Useful if a server requires some information in headers"`
 	Version      bool     `short:"v" long:"version" description:"Print Pluto Version and exit"`
 	urls         []string
 }
@@ -94,7 +94,12 @@ func main() {
 	go func() {
 		<-sig
 		fmt.Printf("Interrupt Detected, Shutting Down.")
-		cancel()
+
+		if len(options.urls) > 0 {
+			os.Exit(1)
+		} else {
+			cancel()
+		}
 	}()
 
 	err := parseArgs()
@@ -128,20 +133,25 @@ func main() {
 			for {
 				select {
 				case <-p.Finished:
+
+					// Once download is finished, We don't need any data currently in channel.
+					for range p.StatsChan {
+					}
+
 					break
 				case v := <-p.StatsChan:
-					os.Stdout.WriteString(fmt.Sprintf("%.2f%% - %s/%s - %s/s	   	      \r", float64(v.Downloaded)/float64(v.Size)*100, humanize.IBytes(v.Downloaded), humanize.IBytes(v.Size), humanize.IBytes(v.Speed)))
+					os.Stdout.WriteString(fmt.Sprintf("\r%.2f%% - %s/%s - %s/s\r", float64(v.Downloaded)/float64(v.Size)*100, humanize.IBytes(v.Downloaded), humanize.IBytes(v.Size), humanize.IBytes(v.Speed)))
 					os.Stdout.Sync()
 				}
-
 			}
-
 		}()
 
 		var fileName string
 		if options.Name != "" {
 			fileName = options.Name
-		} else if p.MetaData.Name == "" {
+		} else if p.MetaData.Name != "" {
+			fileName = p.MetaData.Name
+		} else {
 			fileName = strings.Split(filepath.Base(up.String()), "?")[0]
 		}
 		fileName = strings.Replace(fileName, "/", "\\/", -1)
@@ -164,7 +174,7 @@ func main() {
 
 			as := humanize.IBytes(uint64(result.AvgSpeed))
 
-			fmt.Printf("Downloaded %s in %s. Avg. Speed - %s/s\n", s, htime, as)
+			fmt.Printf("\nDownloaded %s in %s. Avg. Speed - %s/s\n", s, htime, as)
 			fmt.Printf("File saved in %s\n", result.FileName)
 
 		}
